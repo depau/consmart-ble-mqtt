@@ -3,6 +3,7 @@ package main
 import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	adapter1 "github.com/muka/go-bluetooth/bluez/profile/adapter"
+	device2 "github.com/muka/go-bluetooth/bluez/profile/device"
 	"github.com/op/go-logging"
 	"os"
 	"os/signal"
@@ -210,8 +211,45 @@ func main() {
 
 	adapter = getAdapterOrDie(&config)
 	defer adapter.Close()
-	name, _ := adapter.GetName()
-	log.Debugf("bluetooth adapter: %s", name)
+	name, _ := adapter.GetAdapterID()
+	log.Debugf("Bluetooth adapter: %s", name)
+
+	if powered, _ := adapter.GetPowered(); !powered {
+		log.Info("turning Bluetooth adapter on...")
+		if err := adapter.SetPowered(true); err != nil {
+			log.Fatal("unable to turn on adapter: ", err)
+		}
+	}
+
+	log.Debug("waiting for one device to be discovered")
+	if err := adapter.StartDiscovery(); err != nil {
+		log.Warning("failed to start discovery")
+	}
+	scanChan, cancel, err := adapter.OnDeviceDiscovered()
+	if err != nil {
+		log.Fatal("failed to retrieve discovered devices channel: ", err)
+	}
+DiscoveryLoop:
+	for {
+		select {
+		case discoveredDev := <-scanChan:
+			device, err := device2.NewDevice1(discoveredDev.Path)
+			if err != nil {
+				log.Errorf("failed to retrieve discovered device '%s': %v", discoveredDev.Path, err)
+				continue DiscoveryLoop
+			}
+			addr, _ := device.GetAddress()
+			if _, ok := config.Devices[addr]; ok {
+				log.Debugf("found device '%s', proceeding", addr)
+				break DiscoveryLoop
+			}
+		case <-time.After(3 * time.Second):
+			log.Warning("timeout, proceeding anyway")
+			break DiscoveryLoop
+		}
+	}
+	cancel()
+	_ = adapter.StopDiscovery()
 
 	for addr, deviceConfig := range config.Devices {
 		devMountpoint := path.Join(mountpoint, deviceConfig.MountPoint)
