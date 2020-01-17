@@ -63,7 +63,7 @@ func requestDeviceUpdates(bleLight *BleLight, deviceStopChan chan interface{}) {
 			err := (*bleLight).RequestLightStatus()
 			if err != nil {
 				log.Error("failed to request light status, closing: ", err)
-				deviceStopChan <- nil
+				close(deviceStopChan)
 				return
 			}
 		}
@@ -175,7 +175,9 @@ OuterLoop:
 			log.Errorf("error while listening for notifications from '%s': %v", addr, err)
 		}
 
-		close(deviceStopChan)
+		if !IsClosed(deviceStopChan) {
+			close(deviceStopChan)
+		}
 	}
 
 Disconnect:
