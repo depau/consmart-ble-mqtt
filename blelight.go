@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/muka/go-bluetooth/bluez"
@@ -153,10 +154,28 @@ Loop:
 			if !ok || prop == nil {
 				break Loop
 			}
-			if prop.Interface == "org.bluez.GattCharacteristic1" && prop.Name == "Value" {
-				log.Debugf("property changed: interface %s, name %s, value %s", prop.Interface, prop.Name, prop.Value)
+			if prop.Interface != "org.bluez.GattCharacteristic1" || prop.Name != "Value" {
+				break
 			}
-			break
+			value := prop.Value.([]byte)
+
+			if value[0] != 0x66 || len(value) < 10 {
+				hexdump := hex.Dump(value)
+				log.Debug("unrecognized notification value, don't know how to handle: ", hexdump)
+				continue Loop
+			}
+
+			lightStatus := LightStatus{}
+			lightStatus.Power = value[2] == 0x23
+			lightStatus.Mode = reverseLightModes[value[3]]
+			lightStatus.Speed = value[5]
+			lightStatus.R = value[6]
+			lightStatus.G = value[7]
+			lightStatus.B = value[8]
+			lightStatus.WarmWhiteIntensity = value[9]
+			lightStatus.WarmWhite = lightStatus.WarmWhiteIntensity != 0 || lightStatus.Mode != "control"
+
+			light.statusChan <- lightStatus
 
 		case <-deviceStopChan:
 			break Loop

@@ -107,8 +107,9 @@ func GetMessageHandlerSetPower(bleLight *BleLight) (handler func(client mqtt.Cli
 func StatusChanPublisher(
 	mountpoint string,
 	client *mqtt.Client,
-	statusChan *<-chan LightStatus,
-	stopChan *chan interface{},
+	statusChan <-chan LightStatus,
+	stopChan chan interface{},
+	deviceStopChan chan interface{},
 ) {
 	var lastUpdate *map[string]string = nil
 
@@ -122,7 +123,7 @@ func StatusChanPublisher(
 Loop:
 	for {
 		select {
-		case status, ok := <-*statusChan:
+		case status, ok := <-statusChan:
 			if !ok {
 				break Loop
 			}
@@ -151,7 +152,7 @@ Loop:
 			hsbColor := getColorString(rgbToHSB(status.R, status.G, status.B))
 			update[rgbTopic] = rgbColor
 			update[hsbTopic] = hsbColor
-			update[whiteTopic] = string(status.WarmWhiteIntensity)
+			update[whiteTopic] = strconv.FormatUint(uint64(status.WarmWhiteIntensity), 10)
 
 			// Remove unchanged values
 			if lastUpdate != nil {
@@ -171,7 +172,9 @@ Loop:
 
 			break
 
-		case _ = <-*stopChan:
+		case <-deviceStopChan:
+			break Loop
+		case <-stopChan:
 			break Loop
 		}
 	}
@@ -199,7 +202,7 @@ func ConnectClient(config *MQTTConfig) (client mqtt.Client, err error) {
 	}
 
 	client = mqtt.NewClient(clientOptions)
-	
+
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		err = token.Error()
 	}

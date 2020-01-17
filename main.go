@@ -156,9 +156,9 @@ OuterLoop:
 
 		deviceStopChan := make(chan interface{})
 		go requestDeviceUpdates(&bleLight, deviceStopChan)
+		go StatusChanPublisher(mountpoint, &mqttClient, statusChan, stopChan, deviceStopChan)
 
 		mqttClient.Publish(onlineTopic, 1, true, "true")
-
 		log.Infof("successfully connected to '%s'", addr)
 
 		err = bleLight.ListenNotifications(deviceStopChan)
