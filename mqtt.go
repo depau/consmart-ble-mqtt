@@ -154,17 +154,13 @@ Loop:
 			update[hsbTopic] = hsbColor
 			update[whiteTopic] = strconv.FormatUint(uint64(status.WarmWhiteIntensity), 10)
 
-			// Remove unchanged values
-			if lastUpdate != nil {
-				for topic, payload := range *lastUpdate {
-					if update[topic] == payload {
-						delete(update, topic)
+			// Publish only changed values
+			for topic, payload := range update {
+				if lastUpdate != nil {
+					if oldPayload := (*lastUpdate)[topic]; oldPayload == payload {
+						continue
 					}
 				}
-			}
-
-			// Publish all updates
-			for topic, payload := range update {
 				(*client).Publish(topic, 1, true, payload)
 			}
 
