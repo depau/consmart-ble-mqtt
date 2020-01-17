@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -21,8 +22,18 @@ var format = logging.MustStringFormatter(
 )
 
 func signalHandler(signal chan os.Signal, stopChan chan interface{}) {
-	<-signal
-	close(stopChan)
+	for {
+		sig := <-signal
+		if sig == syscall.SIGQUIT {
+			buf := make([]byte, 1<<20)
+			stacklen := runtime.Stack(buf, true)
+			log.Debugf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end", buf[:stacklen])
+		} else {
+			close(stopChan)
+			return
+		}
+	}
+
 }
 
 func getAdapterOrDie(config *Config) (adapter *adapter1.Adapter1) {
