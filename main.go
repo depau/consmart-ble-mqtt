@@ -71,7 +71,6 @@ func handleDeviceForever(
 	onlineTopic := path.Join(mountpoint, "online")
 	colorTopic := path.Join(mountpoint, "control/color")
 	modeTopic := path.Join(mountpoint, "control/mode")
-	whiteTopic := path.Join(mountpoint, "control/white")
 	powerTopic := path.Join(mountpoint, "control/power")
 
 	defer mqttClient.Publish(onlineTopic, 1, true, "false")
@@ -84,7 +83,7 @@ func handleDeviceForever(
 OuterLoop:
 	for {
 		// Just to be sure
-		mqttClient.Unsubscribe(powerTopic, colorTopic, modeTopic, whiteTopic)
+		mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
 
 		select {
 		case <-stopChan:
@@ -149,10 +148,9 @@ OuterLoop:
 		statusChan := make(chan LightStatus)
 		bleLight := NewBleLight(rgbChar, notifyChar, statusChan, stopChan)
 
-		mqttClient.Subscribe(powerTopic, 2, GetMessageHandlerSetPower(&bleLight))
 		mqttClient.Subscribe(colorTopic, 2, GetMessageHandlerSetColor(&bleLight))
-		mqttClient.Subscribe(whiteTopic, 2, GetMessageHandlerSetWhite(&bleLight))
 		mqttClient.Subscribe(modeTopic, 2, GetMessageHandlerSetMode(&bleLight))
+		mqttClient.Subscribe(powerTopic, 2, GetMessageHandlerSetPower(&bleLight))
 
 		deviceStopChan := make(chan interface{})
 		go requestDeviceUpdates(&bleLight, deviceStopChan)
@@ -170,7 +168,7 @@ OuterLoop:
 	}
 
 Disconnect:
-	mqttClient.Unsubscribe(powerTopic, colorTopic, modeTopic, whiteTopic)
+	mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
 
 	err = device.Disconnect()
 	if err != nil {

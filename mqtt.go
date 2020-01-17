@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"path"
 	"strconv"
@@ -10,56 +11,43 @@ import (
 
 func GetMessageHandlerSetColor(bleLight *BleLight) (handler func(client mqtt.Client, message mqtt.Message)) {
 	return func(client mqtt.Client, message mqtt.Message) {
-		str := string(message.Payload()[:])
-		splitStr := strings.Split(str, ":")
-		colorType := splitStr[0]
-
-		if colorType != "rgb" && colorType != "hsb" {
-			log.Errorf("color type not supported: '%s'; valid: 'rgb', 'hsb'", colorType)
-			return
-		}
-		if len(splitStr) != 2 {
-			log.Errorf("invalid color string format: '%s'", str)
-			return
-		}
-
-		colorValue := splitStr[1]
-
+		colorValue := string(message.Payload()[:])
 		color, err := numberStringToUInt8Slice(colorValue)
 		if err != nil {
-			log.Errorf("unable to parse color, '%s': %v", str, err)
+			log.Errorf("unable to parse color, '%s': %v", colorValue, err)
 			return
 		}
 		if len(color) != 3 {
 			log.Errorf("invalid color length: %d", len(color))
 			return
 		}
+		r := color[0]
+		g := color[1]
+		b := color[2]
 
-		if colorType == "hsb" {
-			if err := inPlaceHSBtoRGBConvert(&color); err != nil {
-				log.Error("unable to convert HSB to RGB: ", err)
-				return
+		// Simulate simple power control to be nice to Google Assistant
+		if r == g && g == b && b == r && r == 0 {
+			if err := (*bleLight).SetPower(false); err != nil {
+				log.Error("unable to turn off light: ", err)
+			}
+			return
+		} else {
+			if err := (*bleLight).SetPower(true); err != nil {
+				log.Error("unable to turn on light: ", err)
+				// ignore error, light might be already on so we can as well try to set the other values
 			}
 		}
 
-		if err := (*bleLight).SetRGB(color[0], color[1], color[2]); err != nil {
+		// Simulate simple white control
+		if r == g && g == b && b == r {
+			if err := (*bleLight).SetWarmWhite(r); err != nil {
+				log.Error("unable to set white intensity: ", err)
+			}
+			return
+		}
+
+		if err := (*bleLight).SetRGB(r, g, b); err != nil {
 			log.Error("unable to set RGB color: ", err)
-			return
-		}
-	}
-}
-
-func GetMessageHandlerSetWhite(bleLight *BleLight) (handler func(client mqtt.Client, message mqtt.Message)) {
-	return func(client mqtt.Client, message mqtt.Message) {
-		str := string(message.Payload()[:])
-		intensity, err := strconv.ParseUint(str, 10, 8)
-		if err != nil {
-			log.Errorf("unable to parse warm white intensity '%s': %v", str, err)
-			return
-		}
-
-		if err := (*bleLight).SetWarmWhite(uint8(intensity)); err != nil {
-			log.Error("unable to set warm white intensity: ", err)
 			return
 		}
 	}
@@ -92,14 +80,12 @@ func GetMessageHandlerSetPower(bleLight *BleLight) (handler func(client mqtt.Cli
 	return func(client mqtt.Client, message mqtt.Message) {
 		str := string(message.Payload()[:])
 
-		if str != "on" && str != "off" {
-			log.Errorf("invalid power string '%s'; valid: 'on', 'off'", str)
+		if str != "off" && str != "on" {
+			log.Error("invalid power control string: ", str)
 		}
 
-		power := str == "on"
-		if err := (*bleLight).SetPower(power); err != nil {
-			log.Error("unable to set power: ", err)
-			return
+		if err := (*bleLight).SetPower(str == "on"); err != nil {
+			log.Error("unable to set light power: ", err)
 		}
 	}
 }
@@ -113,12 +99,9 @@ func StatusChanPublisher(
 ) {
 	var lastUpdate *map[string]string = nil
 
-	powerTopic := path.Join(mountpoint, "status/power")
 	modeTopic := path.Join(mountpoint, "status/mode")
-	speedTopic := path.Join(mountpoint, "status/speed")
-	rgbTopic := path.Join(mountpoint, "status/rgb")
-	hsbTopic := path.Join(mountpoint, "status/hsb")
-	whiteTopic := path.Join(mountpoint, "status/white")
+	rgbTopic := path.Join(mountpoint, "status/color")
+	powerTopic := path.Join(mountpoint, "status/power")
 
 Loop:
 	for {
@@ -130,11 +113,6 @@ Loop:
 
 			update := make(map[string]string)
 
-			if status.Power {
-				update[powerTopic] = "on"
-			} else {
-				update[powerTopic] = "off"
-			}
 			var mode string
 			if status.Mode == "control" {
 				if status.WarmWhite {
@@ -142,17 +120,16 @@ Loop:
 				} else {
 					mode = "rgb"
 				}
-
 			} else {
-				mode = status.Mode
+				mode = fmt.Sprintf("%s,%d", status.Mode, status.Speed)
 			}
 			update[modeTopic] = mode
-			update[speedTopic] = string(status.Speed)
-			rgbColor := getColorString(status.R, status.G, status.B)
-			hsbColor := getColorString(rgbToHSB(status.R, status.G, status.B))
-			update[rgbTopic] = rgbColor
-			update[hsbTopic] = hsbColor
-			update[whiteTopic] = strconv.FormatUint(uint64(status.WarmWhiteIntensity), 10)
+			update[rgbTopic] = getColorString(status.R, status.G, status.B)
+			if status.Power {
+				update[powerTopic] = "on"
+			} else {
+				update[powerTopic] = "off"
+			}
 
 			// Publish only changed values
 			for topic, payload := range update {
