@@ -52,7 +52,7 @@ type bleLight struct {
 	rgbCharacteristic    *gatt.GattCharacteristic1
 	notifyCharacteristic *gatt.GattCharacteristic1
 	statusChan           chan<- LightStatus
-	stopChan             chan interface{}
+	stopRope             StopRope
 	propertyChangedChan  chan *bluez.PropertyChanged
 }
 
@@ -63,20 +63,20 @@ type BleLight interface {
 	SetMode(mode string, speed uint8) (err error)
 	SetModeNumber(mode uint8, speed uint8) (err error)
 	RequestLightStatus() (err error)
-	ListenNotifications(deviceStopChan chan interface{}) (err error)
+	ListenNotifications() (err error)
 }
 
 func NewBleLight(
 	rgbCharacteristic *gatt.GattCharacteristic1,
 	notifyCharacteristic *gatt.GattCharacteristic1,
 	statusChan chan<- LightStatus,
-	stopChan chan interface{},
+	stopRope StopRope,
 ) BleLight {
 	return bleLight{
 		rgbCharacteristic:    rgbCharacteristic,
 		notifyCharacteristic: notifyCharacteristic,
 		statusChan:           statusChan,
-		stopChan:             stopChan,
+		stopRope:             stopRope,
 	}
 }
 
@@ -146,7 +146,16 @@ func (light bleLight) RequestLightStatus() error {
 	return light.rgbCharacteristic.WriteValue(payload, nil)
 }
 
-func (light bleLight) propertyChangedWatcher(deviceStopChan chan interface{}) {
+func (light bleLight) propertyChangedWatcher() {
+	if err := light.stopRope.Hold(); err != nil {
+		return
+	}
+	defer light.stopRope.Release()
+	
+	if err := light.notifyCharacteristic.StartNotify(); err != nil {
+		return
+	}
+
 Loop:
 	for {
 		select {
@@ -177,13 +186,13 @@ Loop:
 
 			light.statusChan <- lightStatus
 
-		case <-deviceStopChan:
-			break Loop
-		case <-light.stopChan:
+		case <-light.stopRope.WaitCut():
 			break Loop
 		}
 	}
 	log.Debug("stopped listening for notifications")
+	
+	_ = light.notifyCharacteristic.StopNotify()
 }
 
 func populateReverseLightModes() {
@@ -193,7 +202,7 @@ func populateReverseLightModes() {
 	}
 }
 
-func (light bleLight) ListenNotifications(deviceStopChan chan interface{}) (err error) {
+func (light bleLight) ListenNotifications() (err error) {
 	if reverseLightModes == nil {
 		populateReverseLightModes()
 	}
@@ -202,12 +211,6 @@ func (light bleLight) ListenNotifications(deviceStopChan chan interface{}) (err 
 		return
 	}
 
-	if err = light.notifyCharacteristic.StartNotify(); err != nil {
-		return
-	}
-
-	light.propertyChangedWatcher(deviceStopChan)
-
-	err = light.notifyCharacteristic.StopNotify()
+	go light.propertyChangedWatcher()
 	return
 }

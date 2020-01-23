@@ -41,13 +41,3 @@ func logCharacteristics(device *device.Device1) {
 		log.Debugf("- char: %s %v", uuid, flags)
 	}
 }
-
-func IsClosed(ch <-chan interface{}) bool {
-	select {
-	case _, ok := <-ch:
-		return !ok
-	default:
-	}
-
-	return false
-}

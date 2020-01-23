@@ -21,7 +21,7 @@ var format = logging.MustStringFormatter(
 	`%{color}%{shortfunc:-15.15s} ▶ %{level:.5s}%{color:reset} %{message}`,
 )
 
-func signalHandler(signal chan os.Signal, stopChan chan interface{}) {
+func signalHandler(signal chan os.Signal, stopRope StopRope) {
 	for {
 		sig := <-signal
 		if sig == syscall.SIGQUIT {
@@ -29,7 +29,7 @@ func signalHandler(signal chan os.Signal, stopChan chan interface{}) {
 			stacklen := runtime.Stack(buf, true)
 			log.Debugf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end", buf[:stacklen])
 		} else {
-			close(stopChan)
+			stopRope.Cut()
 			return
 		}
 	}
@@ -54,16 +54,21 @@ func getAdapterOrDie(config *Config) (adapter *adapter1.Adapter1) {
 	return
 }
 
-func requestDeviceUpdates(bleLight *BleLight, deviceStopChan chan interface{}) {
+func requestDeviceUpdates(bleLight *BleLight, stopRope StopRope) {
+	if err := stopRope.Hold(); err != nil {
+		return
+	}
+	defer stopRope.Release()
+
 	for {
 		select {
-		case <-deviceStopChan:
+		case <-stopRope.WaitCut():
 			return
 		case <-time.After(1 * time.Second):
 			err := (*bleLight).RequestLightStatus()
 			if err != nil {
 				log.Error("failed to request light status, closing: ", err)
-				close(deviceStopChan)
+				stopRope.Cut()
 				return
 			}
 		}
@@ -76,8 +81,12 @@ func handleDeviceForever(
 	deviceConfig DeviceConfig,
 	mountpoint string,
 	mqttClient mqtt.Client,
-	stopChan chan interface{},
+	stopRope StopRope,
 ) {
+	if err := stopRope.Hold(); err != nil {
+		return
+	}
+	defer stopRope.Release()
 
 	onlineTopic := path.Join(mountpoint, "online")
 	colorTopic := path.Join(mountpoint, "control/color")
@@ -86,21 +95,16 @@ func handleDeviceForever(
 
 	defer mqttClient.Publish(onlineTopic, 1, true, "false")
 
-	device, err := adapter.GetDeviceByAddress(addr)
-	if err != nil {
-		log.Errorf("unable to get device '%s': %v", addr, err)
-		return
-	}
 OuterLoop:
 	for {
-		// Just to be sure
-		mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
+		if stopRope.IsCut() {
+			break OuterLoop
+		}
 
-		select {
-		case <-stopChan:
-			goto Disconnect
-		default:
-			break
+		device, err := adapter.GetDeviceByAddress(addr)
+		if err != nil {
+			log.Errorf("unable to get device '%s': %v", addr, err)
+			return
 		}
 
 		log.Debugf("connecting to '%s'...", addr)
@@ -124,8 +128,8 @@ OuterLoop:
 			if err != nil {
 				log.Errorf("unable to check whether services were resolved for '%s': %v", addr, err)
 			}
-			if attempts >= 10 {
-				log.Errorf("unable to check whether services were resolved for '%s' after %d attempts: %v", addr, attempts, err)
+			if attempts >= 20 {
+				log.Errorf("unable to check whether services were resolved for '%s' after %d attempts", addr, attempts)
 				continue OuterLoop
 			}
 			time.Sleep(1 * time.Second)
@@ -157,36 +161,52 @@ OuterLoop:
 		}
 
 		statusChan := make(chan LightStatus)
-		bleLight := NewBleLight(rgbChar, notifyChar, statusChan, stopChan)
+		deviceStopRope := NewRope()
+		bleLight := NewBleLight(rgbChar, notifyChar, statusChan, deviceStopRope)
 
 		mqttClient.Subscribe(colorTopic, 2, GetMessageHandlerSetColor(&bleLight))
 		mqttClient.Subscribe(modeTopic, 2, GetMessageHandlerSetMode(&bleLight))
 		mqttClient.Subscribe(powerTopic, 2, GetMessageHandlerSetPower(&bleLight))
 
-		deviceStopChan := make(chan interface{})
-		go requestDeviceUpdates(&bleLight, deviceStopChan)
-		go StatusChanPublisher(mountpoint, &mqttClient, statusChan, stopChan, deviceStopChan)
+		go requestDeviceUpdates(&bleLight, deviceStopRope)
+		go StatusChanPublisher(mountpoint, &mqttClient, statusChan, deviceStopRope)
 
 		mqttClient.Publish(onlineTopic, 1, true, "true")
 		log.Infof("successfully connected to '%s'", addr)
 
-		err = bleLight.ListenNotifications(deviceStopChan)
+		err = bleLight.ListenNotifications()
 		if err != nil {
 			log.Errorf("error while listening for notifications from '%s': %v", addr, err)
 		}
 
-		if !IsClosed(deviceStopChan) {
-			close(deviceStopChan)
+		select {
+		case <-stopRope.WaitCut():
+			// Global stop signal, disconnect
+			deviceStopRope.Cut()
+			deviceStopRope.WaitReleased()
+			disconnectDevice(device)
+			mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
+			break OuterLoop
+		case <-deviceStopRope.WaitCut():
+			// Device disconnected, attempt reconnection
+			log.Warningf("connection to '%s' lost, attempting reconnection...", addr)
+			deviceStopRope.WaitReleased()
 		}
+
+		disconnectDevice(device)
+		mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
 	}
 
-Disconnect:
-	mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
+}
 
-	err = device.Disconnect()
+func disconnectDevice(device *device2.Device1) {
+	addr, _ := device.GetAddress()
+	log.Debugf("disconnecting '%s'", addr)
+	err := device.Disconnect()
 	if err != nil {
 		log.Errorf("unable to disconnect device on stop '%s': %v", addr, err)
 	}
+	device.Close()
 }
 
 func main() {
@@ -206,7 +226,7 @@ func main() {
 		log.Fatal("unable to read config: ", err)
 	}
 
-	stopChan := make(chan interface{})
+	stopRope := NewRope()
 
 	mqttClient, err := ConnectClient(&config.MQTT)
 	if err != nil {
@@ -264,7 +284,7 @@ DiscoveryLoop:
 
 	for addr, deviceConfig := range config.Devices {
 		devMountpoint := path.Join(mountpoint, deviceConfig.MountPoint)
-		go handleDeviceForever(adapter, addr, deviceConfig, devMountpoint, mqttClient, stopChan)
+		go handleDeviceForever(adapter, addr, deviceConfig, devMountpoint, mqttClient, stopRope)
 	}
 
 	signalChan := make(chan os.Signal, 1)
@@ -273,8 +293,9 @@ DiscoveryLoop:
 		syscall.SIGINT,
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
-	go signalHandler(signalChan, stopChan)
+	go signalHandler(signalChan, stopRope)
 
-	<-stopChan
+	<-stopRope.WaitCut()
+	<-stopRope.WaitReleased()
 	time.Sleep(5 * time.Second)
 }

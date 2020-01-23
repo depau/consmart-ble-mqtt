@@ -94,9 +94,13 @@ func StatusChanPublisher(
 	mountpoint string,
 	client *mqtt.Client,
 	statusChan <-chan LightStatus,
-	stopChan chan interface{},
-	deviceStopChan chan interface{},
+	stopRope StopRope,
 ) {
+	if err := stopRope.Hold(); err != nil {
+		return
+	}
+	defer stopRope.Release()
+
 	var lastUpdate *map[string]string = nil
 
 	modeTopic := path.Join(mountpoint, "status/mode")
@@ -145,9 +149,7 @@ Loop:
 
 			break
 
-		case <-deviceStopChan:
-			break Loop
-		case <-stopChan:
+		case <-stopRope.WaitCut():
 			break Loop
 		}
 	}

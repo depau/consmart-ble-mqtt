@@ -1,6 +1,34 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"runtime"
+)
+
+func getFrame(skipFrames int) runtime.Frame {
+	// We need the frame at index skipFrames+2, since we never want runtime.Callers and getFrame
+	targetFrameIndex := skipFrames + 2
+
+	// Set size to targetFrameIndex+2 to ensure we have room for one more caller than we need
+	programCounters := make([]uintptr, targetFrameIndex+2)
+	n := runtime.Callers(0, programCounters)
+
+	frame := runtime.Frame{Function: "unknown"}
+	if n > 0 {
+		frames := runtime.CallersFrames(programCounters[:n])
+		for more, frameIndex := true, 0; more && frameIndex <= targetFrameIndex; frameIndex++ {
+			var frameCandidate runtime.Frame
+			frameCandidate, more = frames.Next()
+			if frameIndex == targetFrameIndex {
+				frame = frameCandidate
+			}
+		}
+	}
+
+	return frame
+}
+
+
 
 type stopRope struct {
 	ropeHolders  int
@@ -41,6 +69,7 @@ func NewRope() StopRope {
 		isReleased:   false,
 	}
 	go rope.ropeWatcher()
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope
 }
 
@@ -58,6 +87,7 @@ func (rope *stopRope) ropeWatcher() {
 }
 
 func (rope *stopRope) Hold() error {
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	if !rope.isReleased && !rope.isCut {
 		rope.holdChan <- 1
 		return nil
@@ -66,14 +96,17 @@ func (rope *stopRope) Hold() error {
 }
 
 func (rope *stopRope) Release() {
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	if !rope.isReleased {
 		rope.holdChan <- -1
 	}
 }
 
 func (rope *stopRope) Cut() {
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	if !rope.isCut {
 		close(rope.cutChan)
+		rope.isCut = true
 	}
 }
 
@@ -82,13 +115,16 @@ func (rope *stopRope) WaitCut() <-chan interface{} {
 }
 
 func (rope *stopRope) WaitReleased() <-chan interface{} {
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope.releasedChan
 }
 
 func (rope *stopRope) IsReleased() bool {
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope.isReleased
 }
 
 func (rope *stopRope) IsCut() bool {
+	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope.isCut
 }
