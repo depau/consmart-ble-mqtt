@@ -28,8 +28,6 @@ func getFrame(skipFrames int) runtime.Frame {
 	return frame
 }
 
-
-
 type stopRope struct {
 	ropeHolders  int
 	holdChan     chan int
@@ -69,7 +67,6 @@ func NewRope() StopRope {
 		isReleased:   false,
 	}
 	go rope.ropeWatcher()
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope
 }
 
@@ -87,7 +84,6 @@ func (rope *stopRope) ropeWatcher() {
 }
 
 func (rope *stopRope) Hold() error {
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	if !rope.isReleased && !rope.isCut {
 		rope.holdChan <- 1
 		return nil
@@ -96,14 +92,12 @@ func (rope *stopRope) Hold() error {
 }
 
 func (rope *stopRope) Release() {
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	if !rope.isReleased {
 		rope.holdChan <- -1
 	}
 }
 
 func (rope *stopRope) Cut() {
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	if !rope.isCut {
 		close(rope.cutChan)
 		rope.isCut = true
@@ -115,16 +109,13 @@ func (rope *stopRope) WaitCut() <-chan interface{} {
 }
 
 func (rope *stopRope) WaitReleased() <-chan interface{} {
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope.releasedChan
 }
 
 func (rope *stopRope) IsReleased() bool {
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope.isReleased
 }
 
 func (rope *stopRope) IsCut() bool {
-	log.Debugf("rope, %v, %v", getFrame(1).Function, rope)
 	return rope.isCut
 }
