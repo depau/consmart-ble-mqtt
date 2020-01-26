@@ -54,7 +54,7 @@ int bind_unbind_device(bool bind) {
 }
 
 int main() {
-  printf("Resetting Raspberry Pi bluetooth...\n");
+  printf("Unbinding Raspberry Pi bluetooth...\n");
 
   // Unbind
   int ret = bind_unbind_device(0);
@@ -63,6 +63,7 @@ int main() {
   }
 
   // Bind
+  printf("Rebinding Raspberry Pi bluetooth...\n");
   ret = bind_unbind_device(1);
   if (ret != EXIT_SUCCESS) {
     return ret;
