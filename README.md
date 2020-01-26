@@ -1,4 +1,4 @@
-# Consmart/Triones BLE smart lights to MQTT bridge
+# Consmart/Triones/Flyidea BLE smart lights to MQTT bridge
 
 **Warning: crazy spaghetty code ahead**
 
