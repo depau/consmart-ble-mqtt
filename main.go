@@ -191,7 +191,6 @@ OuterLoop:
 			// It's best to just exit and restart the program externally, in order not to trigger this bug:
 			// https://github.com/muka/go-bluetooth/issues/91
 			log.Warningf("connection to '%s' lost, stopping program, please restart it.", addr)
-			log.Warning("see https://github.com/muka/go-bluetooth/issues/91")
 			deviceStopRope.WaitReleased()
 			stopRope.Cut()
 			disconnectDevice(device)
