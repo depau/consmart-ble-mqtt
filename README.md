@@ -31,7 +31,7 @@ Let that sink in.
 Really. If Broadcom makes something, you already know how stable it's going to be. But
 the guys at Raspberry Pi didn't think it was unstable enough, so they decided it was a
 good idea to use an SD card as the one and only storage device of the computer. That
-thing is a horrible nightmare and you should take it and throw it away.
+thing is a horrible nightmare and you should burn it.
 
 That being said, I implemented a workaround in order to reset the Bluetooth chip when
 it goes woo-woo. It works on Arch Linux ARM with the mainline `aarch64` kernel, it
