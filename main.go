@@ -320,6 +320,9 @@ DiscoveryLoop:
 			log.Warning("bluetooth reset was requested, resetting")
 			if err := exec.Command(*config.Bluetooth.ResetProgram); err != nil {
 				log.Error("unable to reset bluetooth: ", err)
+			} else {
+				time.Sleep(5 * time.Second)
+				log.Info("bluetooth reset, exiting")
 			}
 		} else {
 			log.Warning("bluetooth reset was requested, but it was not configured; please reset manually")
