@@ -30,15 +30,15 @@ int bind_unbind_device(bool bind) {
   }
 
   size_t bytes = fwrite(DEVICE"\n", DEVICE_LEN + 1, 1, f);
-  if (bytes < DEVICE_LEN + 1) {
-    sprintf(formatted_str, "Unable to %s "DRIVER" driver %s file", bind_str, bind ? "to" : "from");
+  if (bytes < 1) {
+    sprintf(formatted_str, "Unable to %s "DEVICE" %s driver "DRIVER, bind_str, bind ? "to" : "from");
     perror(formatted_str);
     return EXIT_FAILURE;
   }
 
   int ret = fflush(f);
   if (ret == EOF) {
-    sprintf(formatted_str, "Unable to %s "DRIVER" driver %s file", bind_str, bind ? "to" : "from");
+    sprintf(formatted_str, "Unable to %s "DEVICE" %s driver"DRIVER, bind_str, bind ? "to" : "from");
     perror(formatted_str);
     return EXIT_FAILURE;
   }
