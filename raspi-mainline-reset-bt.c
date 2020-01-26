@@ -38,7 +38,7 @@ int bind_unbind_device(bool bind) {
 
   int ret = fflush(f);
   if (ret == EOF) {
-    sprintf(formatted_str, "Unable to %s "DEVICE" %s driver"DRIVER, bind_str, bind ? "to" : "from");
+    sprintf(formatted_str, "Unable to %s "DEVICE" %s driver "DRIVER, bind_str, bind ? "to" : "from");
     perror(formatted_str);
     return EXIT_FAILURE;
   }
@@ -59,7 +59,7 @@ int main() {
   // Unbind
   int ret = bind_unbind_device(0);
   if (ret != EXIT_SUCCESS) {
-    return ret;
+    fprintf(stderr, "Unable to unbind, maybe it's already unbound?\n");
   }
 
   // Bind
