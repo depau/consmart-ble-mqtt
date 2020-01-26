@@ -6,9 +6,11 @@ import (
 	device2 "github.com/muka/go-bluetooth/bluez/profile/device"
 	"github.com/op/go-logging"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -54,7 +56,7 @@ func getAdapterOrDie(config *Config) (adapter *adapter1.Adapter1) {
 	return
 }
 
-func requestDeviceUpdates(bleLight *BleLight, stopRope StopRope) {
+func requestDeviceUpdates(bleLight *BleLight, stopRope StopRope, bluetoothResetChan chan bool) {
 	if err := stopRope.Hold(); err != nil {
 		return
 	}
@@ -67,7 +69,12 @@ func requestDeviceUpdates(bleLight *BleLight, stopRope StopRope) {
 		case <-time.After(1 * time.Second):
 			err := (*bleLight).RequestLightStatus()
 			if err != nil {
-				log.Error("failed to request light status, closing: ", err)
+				if strings.Contains(err.Error(), "Input/output error") {
+					bluetoothResetChan <- true
+					log.Error("failed to request light status, bluetooth needs reset: ", err)
+				} else {
+					log.Error("failed to request light status, closing: ", err)
+				}
 				stopRope.Cut()
 				return
 			}
@@ -82,6 +89,7 @@ func handleDeviceForever(
 	mountpoint string,
 	mqttClient mqtt.Client,
 	stopRope StopRope,
+	bluetoothResetChan chan bool,
 ) {
 	if err := stopRope.Hold(); err != nil {
 		return
@@ -112,6 +120,12 @@ OuterLoop:
 		if ok, err := device.GetConnected(); !ok {
 			err := device.Connect()
 			if err != nil {
+				if strings.Contains(err.Error(), "Input/output error") {
+					bluetoothResetChan <- true
+					log.Error("unable to connect, bluetooth needs reset: ", err)
+					stopRope.Cut()
+					return
+				}
 				log.Errorf("unable to connect device '%s', will retry in 5 sec: %v", addr, err)
 				time.Sleep(5 * time.Second)
 				continue
@@ -168,7 +182,7 @@ OuterLoop:
 		mqttClient.Subscribe(modeTopic, 2, GetMessageHandlerSetMode(&bleLight))
 		mqttClient.Subscribe(powerTopic, 2, GetMessageHandlerSetPower(&bleLight))
 
-		go requestDeviceUpdates(&bleLight, deviceStopRope)
+		go requestDeviceUpdates(&bleLight, deviceStopRope, bluetoothResetChan)
 		go StatusChanPublisher(mountpoint, &mqttClient, statusChan, deviceStopRope)
 
 		mqttClient.Publish(onlineTopic, 1, true, "true")
@@ -282,9 +296,11 @@ DiscoveryLoop:
 	cancel()
 	_ = adapter.StopDiscovery()
 
+	bluetoothResetChan := make(chan bool)
+
 	for addr, deviceConfig := range config.Devices {
 		devMountpoint := path.Join(mountpoint, deviceConfig.MountPoint)
-		go handleDeviceForever(adapter, addr, deviceConfig, devMountpoint, mqttClient, stopRope)
+		go handleDeviceForever(adapter, addr, deviceConfig, devMountpoint, mqttClient, stopRope, bluetoothResetChan)
 	}
 
 	signalChan := make(chan os.Signal, 1)
@@ -297,5 +313,18 @@ DiscoveryLoop:
 
 	<-stopRope.WaitCut()
 	<-stopRope.WaitReleased()
-	time.Sleep(5 * time.Second)
+
+	select {
+	case <-bluetoothResetChan:
+		if config.Bluetooth != nil && config.Bluetooth.ResetProgram != nil {
+			log.Warning("bluetooth reset was requested, resetting")
+			if err := exec.Command(*config.Bluetooth.ResetProgram); err != nil {
+				log.Error("unable to reset bluetooth: ", err)
+			}
+		} else {
+			log.Warning("bluetooth reset was requested, but it was not configured; please reset manually")
+		}
+	default:
+		break
+	}
 }

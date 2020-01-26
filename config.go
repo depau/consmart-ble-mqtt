@@ -23,7 +23,8 @@ type DeviceConfig struct {
 }
 
 type BluetoothConfig struct {
-	Adapter *string `yaml:"adapter,omitempty"`
+	Adapter      *string `yaml:"adapter,omitempty"`
+	ResetProgram *string `yaml:"reset_prog,omitempty"`
 }
 
 type MQTTConfig struct {
