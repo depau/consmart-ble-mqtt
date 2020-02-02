@@ -315,7 +315,12 @@ DiscoveryLoop:
 	go signalHandler(signalChan, stopRope)
 
 	<-stopRope.WaitCut()
-	<-stopRope.WaitReleased()
+
+	select {
+	case <-stopRope.WaitReleased():
+	case <-time.After(5 * time.Second):
+		log.Warning("timed out waiting for all goroutines to stop, potential deadlock")
+	}
 
 	select {
 	case <-bluetoothResetChan:
