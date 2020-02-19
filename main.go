@@ -96,12 +96,12 @@ func handleDeviceForever(
 	}
 	defer stopRope.Release()
 
-	onlineTopic := path.Join(mountpoint, "online")
+	connectedTopic := path.Join(mountpoint, "connected")
 	colorTopic := path.Join(mountpoint, "control/color")
 	modeTopic := path.Join(mountpoint, "control/mode")
 	powerTopic := path.Join(mountpoint, "control/power")
 
-	defer mqttClient.Publish(onlineTopic, 1, true, "false")
+	defer mqttClient.Publish(connectedTopic, 1, true, "false")
 
 OuterLoop:
 	for {
@@ -185,7 +185,7 @@ OuterLoop:
 		go requestDeviceUpdates(&bleLight, deviceStopRope, bluetoothResetChan)
 		go StatusChanPublisher(mountpoint, &mqttClient, statusChan, deviceStopRope)
 
-		mqttClient.Publish(onlineTopic, 1, true, "true")
+		mqttClient.Publish(connectedTopic, 1, true, "true")
 		log.Infof("successfully connected to '%s'", addr)
 
 		err = bleLight.ListenNotifications()
