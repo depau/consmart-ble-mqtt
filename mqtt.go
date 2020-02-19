@@ -156,11 +156,15 @@ Loop:
 }
 
 func ConnectClient(config *MQTTConfig) (client mqtt.Client, err error) {
+	onlineTopic := path.Join(*(config.MountPoint), "online")
+
 	clientOptions := mqtt.NewClientOptions()
 	for _, broker := range config.Servers {
 		clientOptions.AddBroker(broker)
 	}
 	clientOptions.SetAutoReconnect(true)
+	clientOptions.SetWill(onlineTopic, "false", 1, true)
+
 	if config.ClientID != nil {
 		clientOptions.SetClientID(*config.ClientID)
 	}
@@ -181,6 +185,8 @@ func ConnectClient(config *MQTTConfig) (client mqtt.Client, err error) {
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		err = token.Error()
 	}
+
+	client.Publish(onlineTopic, 1, true, "true")
 
 	return
 }
