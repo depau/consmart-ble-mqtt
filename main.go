@@ -199,19 +199,17 @@ OuterLoop:
 			deviceStopRope.Cut()
 			deviceStopRope.WaitReleased()
 			disconnectDevice(device)
+			mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
 			break OuterLoop
 		case <-deviceStopRope.WaitCut():
-			// Device disconnected, do not attempt reconnection.
-			// It's best to just exit and restart the program externally, in order not to trigger this bug:
-			// https://github.com/muka/go-bluetooth/issues/91
-			log.Warningf("connection to '%s' lost, stopping program, please restart it.", addr)
+			// Device disconnected, attempt reconnection
+			log.Warningf("connection to '%s' lost, attempting reconnection...", addr)
 			deviceStopRope.WaitReleased()
-			stopRope.Cut()
-			disconnectDevice(device)
-			break OuterLoop
 		}
+
+		disconnectDevice(device)
+		mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
 	}
-	mqttClient.Unsubscribe(colorTopic, modeTopic, powerTopic)
 
 }
 
