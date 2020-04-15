@@ -191,8 +191,13 @@ Loop:
 		}
 	}
 	log.Debug("stopped listening for notifications")
-	
-	_ = light.notifyCharacteristic.StopNotify()
+
+	if err := light.notifyCharacteristic.StopNotify(); err != nil {
+    log.Error("failed to stop notifications from light")
+  }
+  if err := light.notifyCharacteristic.UnwatchProperties(light.propertyChangedChan); err != nil {
+    log.Error("failed to stop watching notifications")
+  }
 }
 
 func populateReverseLightModes() {
